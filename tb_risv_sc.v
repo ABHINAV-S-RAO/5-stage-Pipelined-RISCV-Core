@@ -1,20 +1,15 @@
-module tb_riscv_sc;
+module tb_riscv_pipeline;
+    reg clk, rst;
 
-reg clk;
-reg start;
+    PipelinedCPU riscv_DUT (clk, rst);
 
-FivestagewithHazard riscv_DUT(clk, start);
+    initial forever #5 clk = ~clk;
 
-initial
-    forever #5 clk = ~clk;
-
-initial begin
-    clk = 0;
-    start = 0;
-    #20 start = 1;
-    #2500;
-    $finish;
-end
-
-
+    initial begin
+        $dumpfile("riscv_pipeline.vcd");
+        $dumpvars(0, tb_riscv_pipeline);
+        clk = 0; rst = 0;
+        #10 rst = 1;
+        #2000 $finish;
+    end
 endmodule
