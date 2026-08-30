@@ -1,28 +1,63 @@
+// TOP LEVEL
 module PipelinedCPU (
     input clk,
     input rst
 );
 
+// ============================================================
+// All pipeline register declarations up front (declare-before-use)
+// ============================================================
 
+// IF/ID pipeline register
+reg [31:0] IFID_inst;
+reg [31:0] IFID_pc;
+reg [31:0] IFID_pc_plus4;
+reg        IFID_predict_taken;
+reg [31:0] IFID_predict_target;
+
+// ID/EX pipeline register
+reg [31:0] IDEX_readData1, IDEX_readData2, IDEX_imm;
+reg [31:0] IDEX_pc_plus4;
+reg [4:0]  IDEX_rd, IDEX_rs1, IDEX_rs2;
+reg [2:0]  IDEX_funct3;
+reg        IDEX_funct7;
+reg        IDEX_memRead, IDEX_memtoReg, IDEX_memWrite, IDEX_ALUSrc, IDEX_regWrite;
+reg [1:0]  IDEX_ALUOp;
+reg        IDEX_jump_jal, IDEX_jump_jalr;
+
+// EX/MEM pipeline register
+reg [31:0] EXMEM_ALUResult, EXMEM_writeData;
+reg [31:0] EXMEM_pc_plus4;
+reg [4:0]  EXMEM_rd;
+reg        EXMEM_memRead, EXMEM_memtoReg, EXMEM_memWrite, EXMEM_regWrite;
+reg        EXMEM_jump_jal, EXMEM_jump_jalr;
+
+// MEM/WB pipeline register
+reg [31:0] MEMWB_ALUResult, MEMWB_memReadData;
+reg [31:0] MEMWB_pc_plus4;
+reg [4:0]  MEMWB_rd;
+reg        MEMWB_memtoReg, MEMWB_regWrite;
+reg        MEMWB_jump_jal, MEMWB_jump_jalr;
+
+// Forward-declared wire (driven from EX stage, used in ID stage forwarding)
+wire [31:0] IDEX_ALUResult_pass;
+
+// ============================================================
 // IF STAGE
+// ============================================================
 
 wire [31:0] pc_current, pc_plus4, inst_IF;
-wire        PCWrite;          // from hazard unit: stall PC when 0
-wire [31:0] pc_next;          // final next-PC (branch/jump or pc+4)
-wire        branch_taken;     // from ID stage branch logic
-wire [31:0] branch_target;    // from ID stage branch logic
-wire [31:0] jump_target_ID;   // JAL/JALR target
+wire        PCWrite;
+wire [31:0] pc_next;
+wire        branch_taken;
+wire [31:0] branch_target;
+wire [31:0] jump_target_ID;
 
-// --- 2-bit saturating counter branch predictor (BTB-style, direct mapped) ---
-wire        predict_taken_IF;   // speculative prediction for pc_current (this fetch)
-wire [31:0] predict_target_IF;  // predicted target if predict_taken_IF
-wire        mispredict;         // resolved in ID: prediction for IFID instr was wrong
-wire [31:0] corrected_pc;       // recovery PC to use on misprediction
+wire        predict_taken_IF;
+wire [31:0] predict_target_IF;
+wire        mispredict;
+wire [31:0] corrected_pc;
 
-// pc_next mux: on misprediction, use the resolved (correct) address.
-// Otherwise, speculatively follow the predictor: predicted target if it says
-// taken, else pc+4. This lets correctly-predicted taken branches run with
-// zero bubbles, unlike the old "always predict not-taken" scheme.
 assign pc_next = mispredict ? corrected_pc :
                   (predict_taken_IF ? predict_target_IF : pc_plus4);
 
@@ -45,10 +80,6 @@ InstructionMemory imem (
     .inst    (inst_IF)
 );
 
-// Predictor lookup uses pc_current (this cycle's fetch address, combinational).
-// Predictor update/training uses the branch/jump currently resolving in ID
-// (IFID_pc / branch_taken / branch_target, and predictor_update_en, all wired
-// below in the ID stage section).
 BranchPredictor2bit bpred (
     .clk           (clk),
     .rst           (rst),
@@ -61,16 +92,8 @@ BranchPredictor2bit bpred (
     .actual_target (branch_target)
 );
 
-// IF/ID pipeline register
-// Flushed (NOP inserted) when branch_taken or hazard_stall flushes IF/ID
-wire IF_ID_flush;   // flush this register (branch taken)
-wire IF_ID_write;   // write enable (stall when 0)
-
-reg [31:0] IFID_inst;
-reg [31:0] IFID_pc;          // PC of instruction in ID (needed for branch target/JAL)
-reg [31:0] IFID_pc_plus4;    // pc+4 in ID (link address for JAL/JALR)
-reg        IFID_predict_taken;   // prediction made when this instruction was fetched
-reg [31:0] IFID_predict_target;  // predicted target at that time
+wire IF_ID_flush;
+wire IF_ID_write;
 
 always @(posedge clk) begin
     if (~rst || IF_ID_flush) begin
@@ -88,14 +111,15 @@ always @(posedge clk) begin
     end
 end
 
-
+// ============================================================
 // ID STAGE
+// ============================================================
 
 wire        memRead_ID, memtoReg_ID, memWrite_ID, ALUSrc_ID, regWrite_ID;
 wire        branch_ID, jump_jal_ID, jump_jalr_ID;
 wire [1:0]  ALUOp_ID;
 wire [31:0] readData1_ID, readData2_ID, imm_ID;
-wire [31:0] writeData_WB;   // from WB stage (write-back to reg file)
+wire [31:0] writeData_WB;
 
 Control ctrl (
     .opcode    (IFID_inst[6:0]),
@@ -127,18 +151,10 @@ ImmGen immgen (
     .imm (imm_ID)
 );
 
-// Branch resolution in ID 
-// Forward from EX (IDEX) or MEM (EXMEM) for branch comparands if needed.
-
-
-// Forwarding muxes for branch operands (only ALU-result forwarding; load
-// forwarding to branch needs an extra stall - handled by hazard unit)
 wire [31:0] branch_fwd_A, branch_fwd_B;
 
-// Forward EX result if the instruction in EX writes to rs1/rs2 of the branch
 wire fwd_branch_A_EX  = (IDEX_regWrite  && (IDEX_rd  != 5'b0) && (IDEX_rd  == IFID_inst[19:15]));
 wire fwd_branch_B_EX  = (IDEX_regWrite  && (IDEX_rd  != 5'b0) && (IDEX_rd  == IFID_inst[24:20]));
-// Forward MEM result
 wire fwd_branch_A_MEM = (EXMEM_regWrite && (EXMEM_rd != 5'b0) && (EXMEM_rd == IFID_inst[19:15]) && !fwd_branch_A_EX);
 wire fwd_branch_B_MEM = (EXMEM_regWrite && (EXMEM_rd != 5'b0) && (EXMEM_rd == IFID_inst[24:20]) && !fwd_branch_B_EX);
 
@@ -147,7 +163,6 @@ assign branch_fwd_A = fwd_branch_A_EX  ? IDEX_ALUResult_pass :
 assign branch_fwd_B = fwd_branch_B_EX  ? IDEX_ALUResult_pass :
                       fwd_branch_B_MEM ? EXMEM_ALUResult      : readData2_ID;
 
-// Comparison for beq/bne/blt/bge
 wire [31:0] branch_diff = branch_fwd_A - branch_fwd_B;
 wire branch_eq  = (branch_diff == 32'b0);
 wire branch_lt  = ($signed(branch_fwd_A) < $signed(branch_fwd_B));
@@ -155,60 +170,31 @@ wire branch_lt  = ($signed(branch_fwd_A) < $signed(branch_fwd_B));
 wire [2:0] funct3_ID = IFID_inst[14:12];
 
 wire branch_cond =  (branch_ID) && (
-                        (funct3_ID == 3'b000 &&  branch_eq) ||   // beq
-                        (funct3_ID == 3'b001 && !branch_eq) ||   // bne
-                        (funct3_ID == 3'b100 &&  branch_lt) ||   // blt
-                        (funct3_ID == 3'b101 && !branch_lt)      // bge
+                        (funct3_ID == 3'b000 &&  branch_eq) ||
+                        (funct3_ID == 3'b001 && !branch_eq) ||
+                        (funct3_ID == 3'b100 &&  branch_lt) ||
+                        (funct3_ID == 3'b101 && !branch_lt)
                     );
 
-// JAL target = PC + imm
-// JALR target = (rs1 + imm) & ~1
 wire [31:0] jal_target  = IFID_pc + imm_ID;
 wire [31:0] jalr_target = (branch_fwd_A + imm_ID) & ~32'b1;
 
 assign branch_taken  = branch_cond || jump_jal_ID || jump_jalr_ID;
 assign branch_target = jump_jalr_ID ? jalr_target :
                        jump_jal_ID  ? jal_target  :
-                                      IFID_pc + imm_ID; // branch PC-relative
+                                      IFID_pc + imm_ID;
 
-// Misprediction check: compare the actual resolved outcome (branch_taken /
-// branch_target, for the instruction currently in ID) against the prediction
-// that was made back when it was fetched (IFID_predict_taken/target).
-// - If actual and predicted directions differ -> misprediction.
-// - If both say "taken" but the resolved target differs from the predicted
-//   target (e.g. stale/compulsory-miss BTB entry) -> also a misprediction.
 wire predict_correct = (branch_taken == IFID_predict_taken) &&
                         (!branch_taken || (branch_target == IFID_predict_target));
 assign mispredict = ~predict_correct;
 
-// Recovery PC on misprediction: the resolved branch target, or fall-through
-// (pc+4 of the mispredicted instruction) if the predictor wrongly said "taken"
 assign corrected_pc = branch_taken ? branch_target : IFID_pc_plus4;
 
-// Flush IF/ID only on misprediction now (discard the wrong-path instruction).
-// Correctly predicted taken branches no longer cost a bubble.
 assign IF_ID_flush = mispredict;
 
-// Train the predictor whenever a branch/jump instruction resolves in ID
 wire predictor_update_en = branch_ID || jump_jal_ID || jump_jalr_ID;
 
-// IDEX pass-through of ALU result (needed for branch forwarding from EX stage)
-// This is just a wire to the EX/MEM register's ALU result — declared later
-// We need a forward declaration wire here:
-wire [31:0] IDEX_ALUResult_pass;  // will be driven from EX stage wire
-
-// ID/EX pipeline register
-// Hazard unit stalls ID/EX (insert NOP) when load-use detected
 wire ID_EX_flush;
-
-reg [31:0] IDEX_readData1, IDEX_readData2, IDEX_imm;
-reg [31:0] IDEX_pc_plus4;   // for JAL/JALR link-address write
-reg [4:0]  IDEX_rd, IDEX_rs1, IDEX_rs2;
-reg [2:0]  IDEX_funct3;
-reg        IDEX_funct7;
-reg        IDEX_memRead, IDEX_memtoReg, IDEX_memWrite, IDEX_ALUSrc, IDEX_regWrite;
-reg [1:0]  IDEX_ALUOp;
-reg        IDEX_jump_jal, IDEX_jump_jalr;  // for link address writeback in WB
 
 always @(posedge clk) begin
     if (~rst || ID_EX_flush) begin
@@ -235,21 +221,21 @@ always @(posedge clk) begin
     end
 end
 
-
+// ============================================================
 // EX STAGE
-
+// ============================================================
 
 wire [31:0] ALU_A_EX, ALU_B_EX, ALUResult_EX;
 wire [3:0]  ALUCtl_EX;
 wire        zero_EX, eff_sign_EX;
-wire [1:0]  forwardA, forwardB;   // from forwarding unit
+wire [1:0]  forwardA, forwardB;
+wire [31:0] ALU_B_EX_reg;
 
-// Forwarding muxes for ALU operands
 Mux3to1 fwd_mux_A (
     .sel(forwardA),
-    .s0 (IDEX_readData1),   // from register file (no hazard)
-    .s1 (writeData_WB),     // forward from WB  (MEM/WB ALU or mem result)
-    .s2 (EXMEM_ALUResult),  // forward from MEM (EX/MEM ALU result)
+    .s0 (IDEX_readData1),
+    .s1 (writeData_WB),
+    .s2 (EXMEM_ALUResult),
     .out(ALU_A_EX)
 );
 
@@ -258,12 +244,9 @@ Mux3to1 fwd_mux_B_reg (
     .s0 (IDEX_readData2),
     .s1 (writeData_WB),
     .s2 (EXMEM_ALUResult),
-    .out(ALU_B_EX_reg)      // forwarded rs2 value
+    .out(ALU_B_EX_reg)
 );
 
-wire [31:0] ALU_B_EX_reg;
-
-// ALUSrc mux: choose between forwarded rs2 or immediate
 Mux2to1 alu_src_mux (
     .sel(IDEX_ALUSrc),
     .s0 (ALU_B_EX_reg),
@@ -289,13 +272,6 @@ ALU alu (
 
 assign IDEX_ALUResult_pass = ALUResult_EX;
 
-// EX/MEM pipeline register
-reg [31:0] EXMEM_ALUResult, EXMEM_writeData;
-reg [31:0] EXMEM_pc_plus4;
-reg [4:0]  EXMEM_rd;
-reg        EXMEM_memRead, EXMEM_memtoReg, EXMEM_memWrite, EXMEM_regWrite;
-reg        EXMEM_jump_jal, EXMEM_jump_jalr;
-
 always @(posedge clk) begin
     if (~rst) begin
         EXMEM_ALUResult  <= 32'b0; EXMEM_writeData <= 32'b0;
@@ -305,7 +281,7 @@ always @(posedge clk) begin
         EXMEM_jump_jal   <= 1'b0;  EXMEM_jump_jalr <= 1'b0;
     end else begin
         EXMEM_ALUResult  <= ALUResult_EX;
-        EXMEM_writeData  <= ALU_B_EX_reg;   // forwarded rs2 for SW
+        EXMEM_writeData  <= ALU_B_EX_reg;
         EXMEM_pc_plus4   <= IDEX_pc_plus4;
         EXMEM_rd         <= IDEX_rd;
         EXMEM_memRead    <= IDEX_memRead;  EXMEM_memtoReg <= IDEX_memtoReg;
@@ -314,8 +290,9 @@ always @(posedge clk) begin
     end
 end
 
+// ============================================================
 // MEM STAGE
-
+// ============================================================
 
 wire [31:0] memReadData_MEM;
 
@@ -329,22 +306,15 @@ DataMemory dmem (
     .readData (memReadData_MEM)
 );
 
-// MEM/WB pipeline register
-reg [31:0] MEMWB_ALUResult, MEMWB_memReadData;
-reg [31:0] MEMWB_pc_plus4;
-reg [4:0]  MEMWB_rd;
-reg        MEMWB_memtoReg, MEMWB_regWrite;
-reg        MEMWB_jump_jal, MEMWB_jump_jalr;
-
 always @(posedge clk) begin
     if (~rst) begin
-        MEMWB_ALUResult  <= 32'b0; 
+        MEMWB_ALUResult  <= 32'b0;
         MEMWB_memReadData <= 32'b0;
-        MEMWB_pc_plus4    <= 32'b0; 
+        MEMWB_pc_plus4    <= 32'b0;
         MEMWB_rd  <= 5'b0;
-        MEMWB_memtoReg  <= 1'b0;  
+        MEMWB_memtoReg  <= 1'b0;
         MEMWB_regWrite  <= 1'b0;
-        MEMWB_jump_jal  <= 1'b0;  
+        MEMWB_jump_jal  <= 1'b0;
         MEMWB_jump_jalr <= 1'b0;
     end else begin
         MEMWB_ALUResult  <= EXMEM_ALUResult;
@@ -356,11 +326,10 @@ always @(posedge clk) begin
     end
 end
 
-
+// ============================================================
 // WB STAGE
+// ============================================================
 
-
-// writeData_WB: ALU result, memory read data, or pc+4 (link address for JAL/JALR)
 wire [31:0] wb_alu_or_mem;
 
 Mux2to1 wb_mux (
@@ -370,11 +339,11 @@ Mux2to1 wb_mux (
     .out(wb_alu_or_mem)
 );
 
-// For JAL/JALR: write pc+4 (return address) into rd
 assign writeData_WB = (MEMWB_jump_jal || MEMWB_jump_jalr) ? MEMWB_pc_plus4 : wb_alu_or_mem;
 
-
+// ============================================================
 // HAZARD DETECTION UNIT
+// ============================================================
 
 HazardDetection hazard_unit (
     .IDEX_memRead   (IDEX_memRead),
@@ -387,8 +356,9 @@ HazardDetection hazard_unit (
     .ID_EX_flush    (ID_EX_flush)
 );
 
-
+// ============================================================
 // FORWARDING UNIT
+// ============================================================
 
 ForwardingUnit fwd_unit (
     .IDEX_rs1       (IDEX_rs1),

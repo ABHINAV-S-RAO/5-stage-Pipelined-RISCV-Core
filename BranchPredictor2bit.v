@@ -56,3 +56,16 @@ module BranchPredictor2bit #(
                 counter[i] <= 2'b01;  // reset to weakly not-taken
                 valid[i]   <= 1'b0;
                 tag[i]     <= {TAG_BITS{1'b0}};
+                target[i]  <= 32'b0;
+            end
+        end else if (update_en) begin
+            valid[update_idx]  <= 1'b1;
+            tag[update_idx]    <= update_tag;
+            target[update_idx] <= actual_target;
+            if (actual_taken)
+                counter[update_idx] <= (counter[update_idx] == 2'b11) ? 2'b11 : counter[update_idx] + 1'b1;
+            else
+                counter[update_idx] <= (counter[update_idx] == 2'b00) ? 2'b00 : counter[update_idx] - 1'b1;
+        end
+    end
+endmodule
