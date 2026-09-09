@@ -62,14 +62,14 @@ assign pc_next = mispredict ? corrected_pc :
                   (predict_taken_IF ? predict_target_IF : pc_plus4);
 
 PC pc_reg (
-    .clk    (clk),
-    .rst    (rst),
-    .PCWrite(PCWrite),
-    .pc_i   (pc_next),
-    .pc_o   (pc_current)
+    .clk (clk),
+    .rst (rst),
+    .en  (PCWrite),
+    .pc_i(pc_next),
+    .pc_o(pc_current)
 );
 
-AdderPC_4 pc_adder (
+Adder pc_adder (
     .a  (pc_current),
     .b  (32'd4),
     .sum(pc_plus4)
@@ -130,8 +130,8 @@ Control ctrl (
     .ALUSrc    (ALUSrc_ID),
     .regWrite  (regWrite_ID),
     .branch    (branch_ID),
-    .jump_jal  (jump_jal_ID),
-    .jump_jalr (jump_jalr_ID)
+    .jal_sig   (jump_jal_ID),
+    .jalr_sig  (jump_jalr_ID)
 );
 
 Register reg_file (
@@ -233,17 +233,17 @@ wire [31:0] ALU_B_EX_reg;
 
 Mux3to1 fwd_mux_A (
     .sel(forwardA),
-    .s0 (IDEX_readData1),
-    .s1 (writeData_WB),
-    .s2 (EXMEM_ALUResult),
+    .in0(IDEX_readData1),
+    .in1(writeData_WB),
+    .in2(EXMEM_ALUResult),
     .out(ALU_A_EX)
 );
 
 Mux3to1 fwd_mux_B_reg (
     .sel(forwardB),
-    .s0 (IDEX_readData2),
-    .s1 (writeData_WB),
-    .s2 (EXMEM_ALUResult),
+    .in0(IDEX_readData2),
+    .in1(writeData_WB),
+    .in2(EXMEM_ALUResult),
     .out(ALU_B_EX_reg)
 );
 
@@ -345,15 +345,18 @@ assign writeData_WB = (MEMWB_jump_jal || MEMWB_jump_jalr) ? MEMWB_pc_plus4 : wb_
 // HAZARD DETECTION UNIT
 // ============================================================
 
-HazardDetection hazard_unit (
-    .IDEX_memRead   (IDEX_memRead),
-    .IDEX_rd        (IDEX_rd),
-    .IFID_rs1       (IFID_inst[19:15]),
-    .IFID_rs2       (IFID_inst[24:20]),
-    .branch_taken   (branch_taken),
-    .PCWrite        (PCWrite),
-    .IF_ID_write    (IF_ID_write),
-    .ID_EX_flush    (ID_EX_flush)
+HazardDetectionUnit hazard_unit (
+    .IDEX_memRead  (IDEX_memRead),
+    .IDEX_rd       (IDEX_rd),
+    .IFID_rs1      (IFID_inst[19:15]),
+    .IFID_rs2      (IFID_inst[24:20]),
+    .mispredict    (mispredict),
+    .IDEX_jalr_sig (jump_jalr_ID),
+    .jal_sig       (jump_jal_ID),
+    .PC_write      (PCWrite),
+    .IFID_write    (IF_ID_write),
+    .insert_nop    (ID_EX_flush),
+    .IF_flush      ()
 );
 
 // ============================================================
@@ -361,8 +364,8 @@ HazardDetection hazard_unit (
 // ============================================================
 
 ForwardingUnit fwd_unit (
-    .IDEX_rs1       (IDEX_rs1),
-    .IDEX_rs2       (IDEX_rs2),
+    .IDEX_rs1_addr  (IDEX_rs1),
+    .IDEX_rs2_addr  (IDEX_rs2),
     .EXMEM_rd       (EXMEM_rd),
     .EXMEM_regWrite (EXMEM_regWrite),
     .MEMWB_rd       (MEMWB_rd),

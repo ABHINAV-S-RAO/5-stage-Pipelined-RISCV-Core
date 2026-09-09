@@ -15,7 +15,7 @@ always @(*) begin
 
     //EX-EX forwarding (higher priority — checked last so it overrides)
     //MEM-EX forwarding
-    if (MEMWB_regWrite & & (MEMWB_rd != 0) && (MEMWB_rd == IDEX_rs1_addr))
+    if (MEMWB_regWrite && (MEMWB_rd != 0) && (MEMWB_rd == IDEX_rs1_addr))
         forwardA = 2'b01;
     if (MEMWB_regWrite && (MEMWB_rd != 0) && (MEMWB_rd == IDEX_rs2_addr))
         forwardB = 2'b01;
