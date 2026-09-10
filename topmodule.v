@@ -1,7 +1,12 @@
 // TOP LEVEL
 module PipelinedCPU (
     input clk,
-    input rst
+    input rst,
+    output [31:0] debug_pc,
+    output [31:0] debug_inst,
+    output [31:0] debug_alu_result,
+    output [31:0] debug_reg_writedata,
+    output        debug_regWrite
 );
 
 // ============================================================
@@ -289,6 +294,12 @@ always @(posedge clk) begin
         EXMEM_jump_jal   <= IDEX_jump_jal; EXMEM_jump_jalr <= IDEX_jump_jalr;
     end
 end
+
+assign debug_pc           = pc_current;
+assign debug_inst         = IFID_inst;
+assign debug_alu_result   = ALUResult_EX;
+assign debug_reg_writedata = writeData_WB;
+assign debug_regWrite     = MEMWB_regWrite;
 
 // ============================================================
 // MEM STAGE
