@@ -33,6 +33,10 @@ make regress                     # every test in verif/tests/asm
 make compare TEST=mem WAVES=1    # also dump build/tests/mem/waves.vcd
 ```
 
+On a machine without the RISC-V toolchain (e.g. the Xcelium server), the flow automatically
+uses the prebuilt program images and Spike logs committed in `verif/golden/`. After adding or
+editing a test, regenerate them on a machine that has gcc + Spike with `make golden` and commit.
+
 Each test's output lands in `build/tests/<test>/`: `prog.dis` (disassembly), `sim.log`,
 `rtl_trace.log`, `spike.log`. The simulation prints `[STATS]` lines (cycles, CPI, branch
 and mispredict counts, stall counts) and `[tb] PASS` / `[tb] FAIL (code N)`; the code is

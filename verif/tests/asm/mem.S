@@ -40,7 +40,7 @@ main:
     addi s1, s0, 8
     lw   a0, -8(s1)
     ASSERT_EQ(15, a0, 0x8899aabb)
-    lbu  a0, -5(s1)
+    lbu  a0, -1(s1)
     ASSERT_EQ(16, a0, 0x11)
 
     // ---- byte stores into each lane

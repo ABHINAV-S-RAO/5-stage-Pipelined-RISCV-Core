@@ -4,7 +4,11 @@
 #   make spike   TEST=<name>   run the same program on Spike (golden model)
 #   make compare TEST=<name>   sim + spike + commit-trace diff
 #   make regress               compare every test in verif/tests/asm
+#   make golden                rebuild verif/golden/ (needs RISC-V gcc + Spike)
 #   make clean
+#
+# Machines without a RISC-V toolchain (e.g. the Xcelium server) automatically
+# use the committed images and Spike logs in verif/golden/ (PREBUILT=1).
 #
 # Options:  SIM=xcelium|icarus   WAVES=1   MAX_CYCLES=<n>
 # Every tool is a variable, e.g.  make compare SPIKE=/path/to/spike RISCV_PREFIX=riscv32-unknown-elf-
@@ -42,12 +46,25 @@ CFLAGS  := -march=rv32i -mabi=ilp32 -O2 -static -nostdlib -nostartfiles -ffreest
            -I$(SW_COMMON) $(RV_CFLAGS_EXTRA)
 LDFLAGS := -T$(SW_COMMON)/link.ld -lgcc
 
-T := $(BUILD)/tests/$(TEST)
+T      := $(BUILD)/tests/$(TEST)
+GOLDEN := $(ROOT)/verif/golden
 
-PLUSARGS = +hex=$(T)/prog.hex +tohost=$$(cat $(T)/tohost.addr) +trace=$(T)/rtl_trace.log \
+# Where the program image and Spike log come from: built here, or prebuilt.
+PREBUILT ?= $(if $(shell command -v $(CC) 2>/dev/null),0,1)
+ifeq ($(PREBUILT),1)
+SRC    := $(GOLDEN)/$(TEST)
+SW_DEP :=
+ISS_DEP :=
+else
+SRC    := $(T)
+SW_DEP := sw
+ISS_DEP := spike
+endif
+
+PLUSARGS = +hex=$(SRC)/prog.hex +tohost=$$(cat $(SRC)/tohost.addr) +trace=$(T)/rtl_trace.log \
            +max_cycles=$(MAX_CYCLES) $(if $(filter 1,$(WAVES)),+vcd)
 
-.PHONY: sw sim spike compare regress clean
+.PHONY: sw sim spike compare regress golden clean
 .SECONDARY:
 
 # ---- software --------------------------------------------------------------
@@ -72,7 +89,8 @@ $(BUILD)/tests/%/spike.log: $(BUILD)/tests/%/prog.elf
 	-$(SPIKE) --isa=rv32i_zicsr -m$(MEM_BASE):$(MEM_SIZE) --log-commits $< 2> $@
 
 # ---- RTL simulation --------------------------------------------------------
-sim: sw
+sim: $(SW_DEP)
+	@mkdir -p $(T)
 ifeq ($(SIM),xcelium)
 	cd $(T) && $(XRUN) -64bit -sv -timescale 1ns/1ps -access +r -top tb_top \
 	    -xmlibdirname $(BUILD)/xcelium.d -l xrun.log \
@@ -86,9 +104,9 @@ else
 endif
 
 # ---- comparison ------------------------------------------------------------
-compare: sim spike
-	$(PYTHON) $(ROOT)/verif/scripts/spike_diff.py $(T)/rtl_trace.log $(T)/spike.log \
-	    --tohost $$(cat $(T)/tohost.addr) --base $(MEM_BASE) --sim-log $(T)/sim.log
+compare: sim $(ISS_DEP)
+	$(PYTHON) $(ROOT)/verif/scripts/spike_diff.py $(T)/rtl_trace.log $(SRC)/spike.log \
+	    --tohost $$(cat $(SRC)/tohost.addr) --base $(MEM_BASE) --sim-log $(T)/sim.log
 
 regress:
 	@mkdir -p $(BUILD)
@@ -100,6 +118,14 @@ regress:
 	    fi; \
 	done; \
 	echo "$$fails failing test(s)"; [ $$fails -eq 0 ]
+
+golden:
+	@for t in $(TESTS); do \
+	    $(MAKE) --no-print-directory PREBUILT=0 TEST=$$t sw spike || exit 1; \
+	    mkdir -p $(GOLDEN)/$$t; \
+	    cp $(BUILD)/tests/$$t/prog.hex $(BUILD)/tests/$$t/tohost.addr \
+	       $(BUILD)/tests/$$t/spike.log $(BUILD)/tests/$$t/prog.dis $(GOLDEN)/$$t/; \
+	done
 
 clean:
 	rm -rf $(BUILD)
