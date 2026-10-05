@@ -1,0 +1,11 @@
+build/
+*.vcd
+*.shm/
+xcelium.d/
+INCA_libs/
+xrun.log
+xrun.history
+xrun.key
+.simvision/
+waves.shm/
+__pycache__/

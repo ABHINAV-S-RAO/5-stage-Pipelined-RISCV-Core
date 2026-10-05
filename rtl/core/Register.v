@@ -19,7 +19,7 @@ module Register (
      
     always @(posedge clk) begin
         if(~rst) begin
-            regs[0] <= 0; regs[1] <= 0; regs[2] <= 32'd128; regs[3] <= 0; 
+            regs[0] <= 0; regs[1] <= 0; regs[2] <= 0; regs[3] <= 0; 
             regs[4] <= 0; regs[5] <= 0; regs[6] <= 0; regs[7] <= 0; 
             regs[8] <= 0; regs[9] <= 0; regs[10] <= 0; regs[11] <= 0; 
             regs[12] <= 0; regs[13] <= 0; regs[14] <= 0; regs[15] <= 0; 
