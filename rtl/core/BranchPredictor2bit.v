@@ -42,7 +42,12 @@ module BranchPredictor2bit #(
     wire [TAG_BITS-1:0]   lookup_tag = pc_lookup[31:TABLE_BITS+2];
     wire                  hit        = valid[lookup_idx] && (tag[lookup_idx] == lookup_tag);
 
+`ifdef NO_BP
+    // Baseline for comparison: no prediction, always fetch pc+4 (static not-taken)
+    assign predict_taken  = 1'b0;
+`else
     assign predict_taken  = hit && counter[lookup_idx][1]; // 2'b10/2'b11 => taken
+`endif
     assign predict_target = target[lookup_idx];
 
     // Write port (ID stage training)
